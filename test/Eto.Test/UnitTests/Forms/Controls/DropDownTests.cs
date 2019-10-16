@@ -4,7 +4,7 @@ using Eto.Forms;
 namespace Eto.Test.UnitTests.Forms.Controls
 {
 	[TestFixture]
-	public class DropDownTests : TestBase
+	public class DropDownTests : ListControlTests<DropDown>
 	{
 		static void TestDropDownSelection(DropDown dropDown, object item1, object item2, object item3, bool useIndex = false)
 		{
@@ -125,5 +125,23 @@ namespace Eto.Test.UnitTests.Forms.Controls
 				Assert.IsNull(dropDown.SelectedValue, "#2.2");
 			});
 		}
+
+		[Test, ManualTest]
+		public void DropDownShouldAlignWithTextBox()
+		{
+			ManualForm("DropDown should align to the left and right of the text box,\nwithout being clipped.", form =>
+			{
+				return new TableLayout
+				{
+					Rows =
+					{
+						new TableRow(new TableCell(new TextBox { Text = "TextBox"}, true), new TableCell(new DropDown { }, true)),
+						new TableRow(new DropDown { }),
+						null
+					}
+				};
+			});
+		}
+
 	}
 }

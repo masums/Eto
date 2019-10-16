@@ -15,6 +15,7 @@ using CoreAnimation;
 using CoreImage;
 using MobileCoreServices;
 #else
+using MonoMac;
 using MonoMac.AppKit;
 using MonoMac.Foundation;
 using MonoMac.CoreGraphics;
@@ -49,13 +50,13 @@ namespace Eto.Mac.Forms
 		[Export("mouseMoved:")]
 		public void MouseMoved(NSEvent theEvent)
 		{
-			Handler.Callback.OnMouseMove(Handler.Widget, MacConversions.GetMouseEvent(Handler.EventControl, theEvent, false));
+			Handler.Callback.OnMouseMove(Handler.Widget, MacConversions.GetMouseEvent(Handler, theEvent, false));
 		}
 
 		[Export("mouseEntered:")]
 		public void MouseEntered(NSEvent theEvent)
 		{
-			Handler.Callback.OnMouseEnter(Handler.Widget, MacConversions.GetMouseEvent(Handler.EventControl, theEvent, false));
+			Handler.Callback.OnMouseEnter(Handler.Widget, MacConversions.GetMouseEvent(Handler, theEvent, false));
 		}
 
 		[Export("cursorUpdate:")]
@@ -66,19 +67,19 @@ namespace Eto.Mac.Forms
 		[Export("mouseExited:")]
 		public void MouseExited(NSEvent theEvent)
 		{
-			Handler.Callback.OnMouseLeave(Handler.Widget, MacConversions.GetMouseEvent(Handler.EventControl, theEvent, false));
+			Handler.Callback.OnMouseLeave(Handler.Widget, MacConversions.GetMouseEvent(Handler, theEvent, false));
 		}
 
 		[Export("scrollWheel:")]
 		public void ScrollWheel(NSEvent theEvent)
 		{
-			Handler.Callback.OnMouseWheel(Handler.Widget, MacConversions.GetMouseEvent(Handler.EventControl, theEvent, true));
+			Handler.Callback.OnMouseWheel(Handler.Widget, MacConversions.GetMouseEvent(Handler, theEvent, true));
 		}
 	}
 
 	public interface IMacViewHandler : IMacControlHandler
 	{
-		Size? PreferredSize { get; }
+		Size UserPreferredSize { get; }
 
 		Control Widget { get; }
 
@@ -88,6 +89,8 @@ namespace Eto.Mac.Forms
 
 		void OnKeyDown(KeyEventArgs e);
 
+		void OnKeyUp(KeyEventArgs e);
+
 		void OnSizeChanged(EventArgs e);
 
 		bool? ShouldHaveFocus { get; set; }
@@ -95,6 +98,12 @@ namespace Eto.Mac.Forms
 		DragEventArgs GetDragEventArgs(NSDraggingInfo info, object customControl);
 
 		void SetEnabled(bool parentEnabled);
+
+		void SetAlignmentFrameSize(CGSize size);
+		void SetAlignmentFrame(CGRect frame);
+		CGRect GetAlignmentFrame();
+		CGSize GetAlignmentSizeForSize(CGSize size);
+		CGPoint GetAlignmentPointForFramePoint(CGPoint point);
 	}
 
 	static class MacView
@@ -102,7 +111,7 @@ namespace Eto.Mac.Forms
 		public static readonly object AutoSize_Key = new object();
 		public static readonly object MinimumSize_Key = new object();
 		public static readonly object MaximumSize_Key = new object();
-		public static readonly object PreferredSize_Key = new object();
+		public static readonly object UserPreferredSize_Key = new object();
 		public static readonly object NaturalAvailableSize_Key = new object();
 		public static readonly object NaturalSize_Key = new object();
 		public static readonly object NaturalSizeInfinity_Key = new object();
@@ -114,7 +123,11 @@ namespace Eto.Mac.Forms
 		public static readonly IntPtr selRightMouseDown = Selector.GetHandle("rightMouseDown:");
 		public static readonly IntPtr selRightMouseUp = Selector.GetHandle("rightMouseUp:");
 		public static readonly IntPtr selRightMouseDragged = Selector.GetHandle("rightMouseDragged:");
+		public static readonly IntPtr selOtherMouseDown = Selector.GetHandle("otherMouseDown:");
+		public static readonly IntPtr selOtherMouseUp = Selector.GetHandle("otherMouseUp:");
+		public static readonly IntPtr selOtherMouseDragged = Selector.GetHandle("otherMouseDragged:");
 		public static readonly IntPtr selScrollWheel = Selector.GetHandle("scrollWheel:");
+		public static readonly IntPtr selFlagsChanged = Selector.GetHandle("flagsChanged:");
 		public static readonly IntPtr selKeyDown = Selector.GetHandle("keyDown:");
 		public static readonly IntPtr selKeyUp = Selector.GetHandle("keyUp:");
 		public static readonly IntPtr selBecomeFirstResponder = Selector.GetHandle("becomeFirstResponder");
@@ -127,7 +140,8 @@ namespace Eto.Mac.Forms
 		public static readonly IntPtr selPerformDragOperation = Selector.GetHandle("performDragOperation:");
 		public static readonly object InitialFocusKey = new object();
 		public static readonly object BackgroundColorKey = new object();
-		public static IntPtr selDrawRect = Selector.GetHandle("drawRect:");
+		public static readonly IntPtr selDrawRect = Selector.GetHandle("drawRect:");
+		public static readonly IntPtr selUpdateLayer = Selector.GetHandle("updateLayer");
 		public static readonly object ShouldHaveFocusKey = new object();
 		public static readonly IntPtr selResetCursorRects = Selector.GetHandle("resetCursorRects");
 		public static readonly object Cursor_Key = new object();
@@ -162,6 +176,11 @@ namespace Eto.Mac.Forms
 		};
 		public static readonly object TabIndex_Key = new object();
 		public static readonly object AllowDrop_Key = new object();
+		public static readonly Selector selSetCanDrawSubviewsIntoLayer = new Selector("setCanDrawSubviewsIntoLayer:");
+		public static readonly bool supportsCanDrawSubviewsIntoLayer = ObjCExtensions.InstancesRespondToSelector<NSView>("setCanDrawSubviewsIntoLayer:");
+		public static readonly object UseAlignmentFrame_Key = new object();
+
+		public const string FlagsChangedEvent = "MacView.FlagsChangedEvent";
 	}
 
 	public abstract class MacView<TControl, TWidget, TCallback> : MacObject<TControl, TWidget, TCallback>, Control.IHandler, IMacViewHandler
@@ -213,10 +232,14 @@ namespace Eto.Mac.Forms
 			set { Widget.Properties[MacView.MaximumSize_Key] = value; InvalidateMeasure(); }
 		}
 
-		public Size? PreferredSize
+		public Size UserPreferredSize
 		{
-			get { return Widget.Properties.Get<Size?>(MacView.PreferredSize_Key); }
-			set { Widget.Properties[MacView.PreferredSize_Key] = value; }
+			get => Widget.Properties.Get<Size?>(MacView.UserPreferredSize_Key) ?? new Size(-1, -1);
+			set
+			{
+				if (Widget.Properties.TrySet(MacView.UserPreferredSize_Key, value))
+					SetAutoSize();
+			}
 		}
 
 		public virtual Size Size
@@ -224,38 +247,55 @@ namespace Eto.Mac.Forms
 			get
 			{
 				if (!Widget.Loaded)
-					return PreferredSize ?? new Size(-1, -1);
-				return ContainerControl.Frame.Size.ToEtoSize();
+					return UserPreferredSize;
+				return GetAlignmentFrame().Size.ToEtoSize();
 			}
 			set
 			{
-				AutoSize = value.Width == -1 || value.Height == -1;
+				var preferredSize = UserPreferredSize;
+				if (preferredSize == value)
+					return;
+				UserPreferredSize = value;
+
 				if (!Widget.Loaded)
 				{
-					if (PreferredSize != value)
-					{
-						PreferredSize = value;
-						Callback.OnSizeChanged(Widget, EventArgs.Empty);
-					}
+					Callback.OnSizeChanged(Widget, EventArgs.Empty);
 					return;
 				}
-				PreferredSize = value;
 
-				var oldFrameSize = ContainerControl.Frame.Size;
-				var newSize = oldFrameSize;
+				var oldFrame = GetAlignmentFrame();
+				var newFrame = oldFrame;
 				if (value.Width >= 0)
-					newSize.Width = value.Width;
+					newFrame.Width = value.Width;
 				if (value.Height >= 0)
-					newSize.Height = value.Height;
+					newFrame.Height = value.Height;
 
 				// this doesn't get to our overridden method to handle the event (since it calls [super setFrameSize:]) so trigger event manually.
-				ContainerControl.SetFrameSize(newSize);
-				if (oldFrameSize != newSize)
+				SetAlignmentFrameSize(newFrame.Size);
+				if (oldFrame.Size != newFrame.Size)
 					Callback.OnSizeChanged(Widget, EventArgs.Empty);
 
 				CreateTracking();
 				InvalidateMeasure();
 			}
+		}
+
+		public virtual int Width
+		{
+			get => Size.Width;
+			set => Size = new Size(value, UserPreferredSize.Height);
+		}
+
+		public virtual int Height
+		{
+			get => Size.Height;
+			set => Size = new Size(UserPreferredSize.Width, value);
+		}
+
+		protected virtual void SetAutoSize()
+		{
+			var userPreferredSize = UserPreferredSize;
+			AutoSize = userPreferredSize.Width == -1 || userPreferredSize.Height == -1;
 		}
 
 		protected Size? NaturalAvailableSize
@@ -292,10 +332,10 @@ namespace Eto.Mac.Forms
 			var naturalSize = NaturalSize;
 			if (naturalSize != null)
 				return naturalSize.Value;
-			var control = ContainerControl as NSView;
-			if (control != null)
+			if (ContainerControl is NSView control)
 			{
-				naturalSize = control.FittingSize.ToEto();
+				naturalSize = GetAlignmentSizeForSize(control.FittingSize).ToEto();
+
 				NaturalSize = naturalSize;
 				return naturalSize.Value;
 			}
@@ -305,28 +345,24 @@ namespace Eto.Mac.Forms
 		public virtual SizeF GetPreferredSize(SizeF availableSize)
 		{
 			SizeF size;
-			if (PreferredSize != null)
+			var preferredSize = UserPreferredSize;
+			// only get natural size if the size isn't explicitly set.
+			if (preferredSize.Width == -1 || preferredSize.Height == -1)
 			{
-				var preferredSize = PreferredSize.Value;
-				// only get natural size if the size isn't explicitly set.
-				if (preferredSize.Width == -1 || preferredSize.Height == -1)
-				{
-					if (preferredSize.Width >= 0)
-						availableSize.Width = preferredSize.Width;
-					if (preferredSize.Height >= 0)
-						availableSize.Height = preferredSize.Height;
-					size = GetNaturalSize(availableSize);
-				}
-				else
-					size = SizeF.Empty;
-
 				if (preferredSize.Width >= 0)
-					size.Width = preferredSize.Width;
+					availableSize.Width = preferredSize.Width;
 				if (preferredSize.Height >= 0)
-					size.Height = preferredSize.Height;
+					availableSize.Height = preferredSize.Height;
+				size = GetNaturalSize(availableSize);
 			}
 			else
-				size = GetNaturalSize(availableSize);
+				size = SizeF.Empty;
+
+			if (preferredSize.Width >= 0)
+				size.Width = preferredSize.Width;
+			if (preferredSize.Height >= 0)
+				size.Height = preferredSize.Height;
+
 			size =  SizeF.Min(SizeF.Max(size, MinimumSize), MaximumSize);
 
 			return size;
@@ -337,13 +373,26 @@ namespace Eto.Mac.Forms
 			if (!mouseMove)
 				return;
 			if (tracking != null)
+			{
 				EventControl.RemoveTrackingArea(tracking);
+				tracking = null;
+			}
 			//Console.WriteLine ("Adding mouse tracking {0} for area {1}", this.Widget.GetType ().FullName, Control.Frame.Size);
-			if (mouseDelegate == null)
-				mouseDelegate = new MouseDelegate { Handler = this };
-			var options = mouseOptions | NSTrackingAreaOptions.ActiveAlways | NSTrackingAreaOptions.EnabledDuringMouseDrag | NSTrackingAreaOptions.InVisibleRect;
-			tracking = new NSTrackingArea(new CGRect(CGPoint.Empty, EventControl.Frame.Size), options, mouseDelegate, new NSDictionary());
-			EventControl.AddTrackingArea(tracking);
+			var frame = new CGRect(CGPoint.Empty, EventControl.Frame.Size);
+			if (!frame.IsEmpty)
+			{
+				if (mouseDelegate == null)
+					mouseDelegate = new MouseDelegate { Handler = this };
+
+				frame = GetAlignmentRectForFrame(frame);
+
+				var options = mouseOptions | NSTrackingAreaOptions.ActiveAlways | NSTrackingAreaOptions.EnabledDuringMouseDrag;
+				if (!UseAlignmentFrame)
+					options |= NSTrackingAreaOptions.InVisibleRect;
+
+				tracking = new NSTrackingArea(frame, options, mouseDelegate, null);
+				EventControl.AddTrackingArea(tracking);
+			}
 		}
 
 		public virtual void SetParent(Container oldParent, Container newParent)
@@ -355,6 +404,9 @@ namespace Eto.Mac.Forms
 		{
 			switch (id)
 			{
+				case Eto.Forms.Control.EnabledChangedEvent:
+					// handled manually
+					break;
 				case Eto.Forms.Control.MouseEnterEvent:
 					HandleEvent(Eto.Forms.Control.MouseLeaveEvent);
 					break;
@@ -371,6 +423,7 @@ namespace Eto.Mac.Forms
 					CreateTracking();
 					AddMethod(MacView.selMouseDragged, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseDragged), "v@:@");
 					AddMethod(MacView.selRightMouseDragged, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseDragged), "v@:@");
+					AddMethod(MacView.selOtherMouseDragged, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseDragged), "v@:@");
 					break;
 				case Eto.Forms.Control.SizeChangedEvent:
 					AddMethod(MacView.selSetFrameSize, new Action<IntPtr, IntPtr, CGSize>(SetFrameSizeAction), EtoEnvironment.Is64BitProcess ? "v@:{CGSize=dd}" : "v@:{CGSize=ff}", ContainerControl);
@@ -378,10 +431,12 @@ namespace Eto.Mac.Forms
 				case Eto.Forms.Control.MouseDownEvent:
 					AddMethod(MacView.selMouseDown, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseDown), "v@:@");
 					AddMethod(MacView.selRightMouseDown, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseDown), "v@:@");
+					AddMethod(MacView.selOtherMouseDown, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseDown), "v@:@");
 					break;
 				case Eto.Forms.Control.MouseUpEvent:
 					AddMethod(MacView.selMouseUp, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseUp), "v@:@");
 					AddMethod(MacView.selRightMouseUp, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseUp), "v@:@");
+					AddMethod(MacView.selOtherMouseUp, new Action<IntPtr, IntPtr, IntPtr>(TriggerMouseUp), "v@:@");
 					break;
 				case Eto.Forms.Control.MouseDoubleClickEvent:
 					HandleEvent(Eto.Forms.Control.MouseDownEvent);
@@ -391,9 +446,14 @@ namespace Eto.Mac.Forms
 					break;
 				case Eto.Forms.Control.KeyDownEvent:
 					AddMethod(MacView.selKeyDown, new Action<IntPtr, IntPtr, IntPtr>(TriggerKeyDown), "v@:@");
+					HandleEvent(MacView.FlagsChangedEvent);
 					break;
 				case Eto.Forms.Control.KeyUpEvent:
 					AddMethod(MacView.selKeyUp, new Action<IntPtr, IntPtr, IntPtr>(TriggerKeyUp), "v@:@");
+					HandleEvent(MacView.FlagsChangedEvent);
+					break;
+				case MacView.FlagsChangedEvent:
+					AddMethod(MacView.selFlagsChanged, new Action<IntPtr, IntPtr, IntPtr>(TriggerFlagsChanged), "v@:@");
 					break;
 				case Eto.Forms.Control.LostFocusEvent:
 					AddMethod(MacView.selResignFirstResponder, new Func<IntPtr, IntPtr, bool>(TriggerLostFocus), "B@:");
@@ -570,6 +630,20 @@ namespace Eto.Mac.Forms
 			}
 		}
 
+		static void TriggerFlagsChanged(IntPtr sender, IntPtr sel, IntPtr e)
+		{
+			var obj = Runtime.GetNSObject(sender);
+			var handler = GetHandler(obj) as IMacViewHandler;
+			if (handler != null)
+			{
+				var theEvent = Messaging.GetNSObject<NSEvent>(e);
+				if (!MacEventView.FlagsChanged(handler.Widget, theEvent))
+				{
+					Messaging.void_objc_msgSendSuper_IntPtr(obj.SuperHandle, sel, e);
+				}
+			}
+		}
+
 		static void TriggerKeyUp(IntPtr sender, IntPtr sel, IntPtr e)
 		{
 			var obj = Runtime.GetNSObject(sender);
@@ -591,7 +665,7 @@ namespace Eto.Mac.Forms
 			if (handler != null)
 			{
 				var theEvent = Messaging.GetNSObject<NSEvent>(e);
-				var args = MacConversions.GetMouseEvent(handler.ContainerControl, theEvent, false);
+				var args = MacConversions.GetMouseEvent(handler, theEvent, false);
 				if (theEvent.ClickCount >= 2)
 					handler.Callback.OnMouseDoubleClick(handler.Widget, args);
 
@@ -618,15 +692,13 @@ namespace Eto.Mac.Forms
 				return;
 			if (evt.Type == NSEventType.LeftMouseUp || evt.Type == NSEventType.RightMouseUp || evt.Type == NSEventType.OtherMouseUp)
 			{
-				Callback.OnMouseUp(Widget, MacConversions.GetMouseEvent(ContainerControl, evt, false));
+				Callback.OnMouseUp(Widget, MacConversions.GetMouseEvent(this, evt, false));
 			}
 			if (evt.Type == NSEventType.LeftMouseDragged || evt.Type == NSEventType.RightMouseDragged || evt.Type == NSEventType.OtherMouseDragged)
 			{
-				Callback.OnMouseMove(Widget, MacConversions.GetMouseEvent(ContainerControl, evt, false));
+				Callback.OnMouseMove(Widget, MacConversions.GetMouseEvent(this, evt, false));
 			}
 		}
-
-
 
 		static void TriggerMouseUp(IntPtr sender, IntPtr sel, IntPtr e)
 		{
@@ -636,7 +708,7 @@ namespace Eto.Mac.Forms
 			if (handler != null)
 			{
 				var theEvent = Messaging.GetNSObject<NSEvent>(e);
-				var args = MacConversions.GetMouseEvent(handler.ContainerControl, theEvent, false);
+				var args = MacConversions.GetMouseEvent(handler, theEvent, false);
 				handler.Callback.OnMouseUp(handler.Widget, args);
 				if (!args.Handled)
 				{
@@ -652,7 +724,7 @@ namespace Eto.Mac.Forms
 			if (handler != null)
 			{
 				var theEvent = Messaging.GetNSObject<NSEvent>(e);
-				var args = MacConversions.GetMouseEvent(handler.ContainerControl, theEvent, false);
+				var args = MacConversions.GetMouseEvent(handler, theEvent, false);
 				handler.Callback.OnMouseMove(handler.Widget, args);
 				if (!args.Handled)
 				{
@@ -668,7 +740,7 @@ namespace Eto.Mac.Forms
 			if (handler != null)
 			{
 				var theEvent = Messaging.GetNSObject<NSEvent>(e);
-				var args = MacConversions.GetMouseEvent(handler.ContainerControl, theEvent, true);
+				var args = MacConversions.GetMouseEvent(handler, theEvent, true);
 				if (!args.Delta.IsZero)
 				{
 					handler.Callback.OnMouseWheel(handler.Widget, args);
@@ -722,6 +794,8 @@ namespace Eto.Mac.Forms
 				InitialFocus = true;
 		}
 
+		protected bool HasBackgroundColor => Widget.Properties.Get<Color?>(MacView.BackgroundColorKey) != null;
+
 		public virtual Color BackgroundColor
 		{
 			get { return Widget.Properties.Get<Color?>(MacView.BackgroundColorKey) ?? Colors.Transparent; }
@@ -730,8 +804,7 @@ namespace Eto.Mac.Forms
 				if (value != BackgroundColor)
 				{
 					Widget.Properties[MacView.BackgroundColorKey] = value;
-					if (Widget.Loaded)
-						SetBackgroundColor(value);
+					SetBackgroundColor(value);
 				}
 			}
 		}
@@ -739,31 +812,61 @@ namespace Eto.Mac.Forms
 		static void DrawBackgroundRect(IntPtr sender, IntPtr sel, CGRect rect)
 		{
 			var control = Runtime.GetNSObject(sender);
-			var handler = GetHandler(control) as MacView<TControl, TWidget, TCallback>;
-			if (handler != null)
+			if (GetHandler(control) is MacView<TControl, TWidget, TCallback> handler)
 			{
 				var col = handler.BackgroundColor;
 				if (col.A > 0)
 				{
 					var context = NSGraphicsContext.CurrentContext.GraphicsPort;
-					context.SetFillColor(col.ToCG());
-					context.FillRect(rect);
+					col.ToNSUI().SetFill();
+					var bounds = handler.GetAlignmentRectForFrame(handler.ContainerControl.Bounds);
+					context.FillRect(bounds);
 				}
 			}
 			Messaging.void_objc_msgSendSuper_CGRect(control.SuperHandle, sel, rect);
 		}
 
+		static void UpdateLayerWithBackground(IntPtr sender, IntPtr sel)
+		{
+			var control = Runtime.GetNSObject<NSView>(sender);
+			if (GetHandler(control) is MacView<TControl, TWidget, TCallback> handler)
+			{
+				control.Layer.BackgroundColor = handler.BackgroundColor.ToCG();
+			}
+			Messaging.void_objc_msgSendSuper(control.SuperHandle, sel);
+		}
+
 		bool drawRectAdded;
+
+		protected virtual bool UseNSBoxBackgroundColor => true;
 
 		protected virtual void SetBackgroundColor(Color? color)
 		{
 			if (color != null)
 			{
-				if (color.Value.A > 0 && !drawRectAdded)
+				if (UseNSBoxBackgroundColor && ContainerControl is NSBox box)
 				{
-					AddMethod(MacView.selDrawRect, new Action<IntPtr, IntPtr, CGRect>(DrawBackgroundRect), EtoEnvironment.Is64BitProcess ? "v@:{CGRect=dddd}" : "v@:{CGRect=ffff}", ContainerControl);
+					// use NSBox to fill instead to have better dark mode support
+					// e.g. background color is tinted by system automatically.
+					box.FillColor = color.Value.ToNSUI();
+					box.Transparent = color.Value.A <= 0;
+					return;
+				}
+
+				if (!drawRectAdded && color.Value.A > 0)
+				{
+					//AddMethod(MacView.selUpdateLayer, new Action<IntPtr, IntPtr>(UpdateLayerWithBackground), EtoEnvironment.Is64BitProcess ? "v@:{CGRect=dddd}" : "v@:{CGRect=ffff}", ContainerControl);
+					//ContainerControl.WantsLayer = true;
+					if (AddMethod(MacView.selDrawRect, new Action<IntPtr, IntPtr, CGRect>(DrawBackgroundRect), EtoEnvironment.Is64BitProcess ? "v@:{CGRect=dddd}" : "v@:{CGRect=ffff}", ContainerControl))
+					{
+						// need this to actually use drawRect:, which is determined when the object is created
+						if (MacView.supportsCanDrawSubviewsIntoLayer)
+							ContainerControl.CanDrawSubviewsIntoLayer = true;
+					}
+
 					drawRectAdded = true;
 				}
+
 				ContainerControl.SetNeedsDisplay();
 			}
 		}
@@ -796,8 +899,8 @@ namespace Eto.Mac.Forms
 
 		protected virtual bool ControlEnabled
 		{
-			get => Widget.Properties.Get<bool?>(MacView.ActualEnabled_Key) ?? true;
-			set => Widget.Properties.Set<bool?>(MacView.ActualEnabled_Key, value);
+			get => Widget.Properties.Get<bool>(MacView.ActualEnabled_Key, true);
+			set => Widget.Properties.Set<bool>(MacView.ActualEnabled_Key, value, true);
 		}
 
 		public bool? ShouldHaveFocus
@@ -855,8 +958,12 @@ namespace Eto.Mac.Forms
 			{
 				if (Cursor != value)
 				{
+					bool needsMethod = !Widget.Properties.ContainsKey(MacView.Cursor_Key);
 					Widget.Properties[MacView.Cursor_Key] = value;
-					AddMethod(MacView.selResetCursorRects, new Action<IntPtr, IntPtr>(TriggerResetCursorRects), "v@:");
+					if (needsMethod)
+						AddMethod(MacView.selResetCursorRects, new Action<IntPtr, IntPtr>(TriggerResetCursorRects), "v@:");
+
+					EventControl.Window?.InvalidateCursorRectsForView(EventControl);
 				}
 			}
 		}
@@ -896,48 +1003,55 @@ namespace Eto.Mac.Forms
 				FocusControl.Window.MakeFirstResponder(FocusControl);
 				InitialFocus = false;
 			}
-			var bg = Widget.Properties.Get<Color?>(MacView.BackgroundColorKey);
-			if (bg != null)
-				SetBackgroundColor(bg);
 		}
 
 		public virtual void OnUnLoad(EventArgs e)
 		{
 		}
 
-		public virtual void OnKeyDown(KeyEventArgs e)
-		{
-			Callback.OnKeyDown(Widget, e);
-		}
+		public virtual void OnKeyDown(KeyEventArgs e) => Callback.OnKeyDown(Widget, e);
+		public virtual void OnKeyUp(KeyEventArgs e) => Callback.OnKeyUp(Widget, e);
 
 		Control IMacViewHandler.Widget { get { return Widget; } }
 
 		public virtual PointF PointFromScreen(PointF point)
 		{
-			var sdpoint = point.ToNS();
-			if (EventControl.Window != null)
+			var pt = point.ToNS();
+			var view = ContainerControl;
+			var window = view.Window;
+			if (window != null)
 			{
-				sdpoint.Y = ContentControl.Window.Screen.Frame.Height - sdpoint.Y;
-				sdpoint = ContentControl.Window.ConvertScreenToBase(sdpoint);
+				// macOS has flipped co-ordinates starting at the bottom left of the main screen,
+				// so we flip to make 0,0 top left
+				var mainFrame = NSScreen.Screens[0].Frame;
+				pt.Y = mainFrame.Height - pt.Y;
+				pt = window.ConvertScreenToBase(pt);
 			}
-			sdpoint = ContentControl.ConvertPointFromView(sdpoint, null);
-			if (!ContentControl.IsFlipped)
-				sdpoint.Y = ContentControl.Frame.Height - sdpoint.Y;
-			return sdpoint.ToEto();
+			pt = view.ConvertPointFromView(pt, null);
+			if (!view.IsFlipped)
+				pt.Y = view.Frame.Height - pt.Y;
+			pt = GetAlignmentPointForFramePoint(pt);
+			return pt.ToEto();
 		}
 
 		public virtual PointF PointToScreen(PointF point)
 		{
-			var sdpoint = point.ToNS();
-			if (!ContentControl.IsFlipped)
-				sdpoint.Y = ContentControl.Frame.Height - sdpoint.Y;
-			sdpoint = ContentControl.ConvertPointToView(sdpoint, null);
-			if (ContentControl.Window != null)
+			var pt = point.ToNS();
+			pt = GetFramePointForAlignmentPoint(pt);
+			var view = ContainerControl;
+			if (!view.IsFlipped)
+				pt.Y = view.Frame.Height - pt.Y;
+			pt = view.ConvertPointToView(pt, null);
+			var window = view.Window;
+			if (window != null)
 			{
-				sdpoint = ContentControl.Window.ConvertBaseToScreen(sdpoint);
-				sdpoint.Y = ContentControl.Window.Screen.Frame.Height - sdpoint.Y;
+				pt = window.ConvertBaseToScreen(pt);
+				// macOS has flipped co-ordinates starting at the bottom left of the main screen,
+				// so we flip to make 0,0 top left
+				var mainFrame = NSScreen.Screens[0].Frame;
+				pt.Y = mainFrame.Height - pt.Y;
 			}
-			return sdpoint.ToEto();
+			return pt.ToEto();
 		}
 
 		Point Control.IHandler.Location
@@ -1049,7 +1163,7 @@ namespace Eto.Mac.Forms
 
 		static void FireOnShown(Control control)
 		{
-			if (!control.Visible)
+			if (control.IsDisposed || !control.Visible)
 				return;
 
 			// don't use GetMacViewHandler() extension, as that will trigger OnShown for themed controls, which will
@@ -1090,7 +1204,80 @@ namespace Eto.Mac.Forms
 			// TODO: block until drag is complete?
 		}
 
-		public Window GetNativeParentWindow() => ContainerControl.Window.ToEtoWindow();
+		public Window GetNativeParentWindow()
+		{
+			var window = ContainerControl.Window;
+
+
+			return window.ToEtoWindow();
+		}
+
+		protected virtual bool DefaultUseAlignmentFrame => false;
+
+		public bool UseAlignmentFrame
+		{
+			get => Widget.Properties.Get<bool?>(MacView.UseAlignmentFrame_Key) ?? DefaultUseAlignmentFrame;
+			set => Widget.Properties.Set<bool?>(MacView.UseAlignmentFrame_Key, value);
+		}
+
+		public void SetAlignmentFrameSize(CGSize size)
+		{
+			if (UseAlignmentFrame)
+				size = GetFrameForAlignmentRect(new CGRect(CGPoint.Empty, size)).Size;
+
+			ContainerControl.SetFrameSize(size);
+		}
+
+		public virtual void SetAlignmentFrame(CGRect frame) => ContainerControl.Frame = GetFrameForAlignmentRect(frame);
+
+		public virtual CGRect GetFrameForAlignmentRect(CGRect frame)
+		{
+			if (!UseAlignmentFrame)
+				return frame;
+
+			return ContainerControl.GetFrameForAlignmentRect(frame);
+		}
+
+		public virtual CGRect GetAlignmentRectForFrame(CGRect frame)
+		{
+			if (!UseAlignmentFrame)
+				return frame;
+
+			return ContainerControl.GetAlignmentRectForFrame(frame);
+		}
+
+		public CGRect GetAlignmentFrame() => GetAlignmentRectForFrame(ContainerControl.Frame);
+
+		public CGSize GetAlignmentSizeForSize(CGSize size) => GetAlignmentRectForFrame(new CGRect(CGPoint.Empty, size)).Size;
+
+		public CGPoint GetAlignmentPointForFramePoint(CGPoint point)
+		{
+			if (!UseAlignmentFrame)
+				return point;
+			var view = ContainerControl;
+			var frame = view.Frame;
+			var alignment = view.GetAlignmentRectForFrame(new CGRect(CGPoint.Empty, frame.Size));
+			point.X -= alignment.X;
+			if (view.IsFlipped)
+				point.Y += alignment.Y;
+			else
+				point.Y -= alignment.Y;
+			return point;
+		}
+		public CGPoint GetFramePointForAlignmentPoint(CGPoint point)
+		{
+			if (!UseAlignmentFrame)
+				return point;
+			var view = ContainerControl;
+			var frame = view.Frame;
+			var alignment = view.GetAlignmentRectForFrame(new CGRect(CGPoint.Empty, frame.Size));
+			point.X += alignment.X;
+			if (view.IsFlipped)
+				point.Y -= alignment.Y;
+			else
+				point.Y += alignment.Y;
+			return point;
+		}
 	}
 }
 

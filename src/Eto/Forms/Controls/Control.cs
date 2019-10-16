@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
+using sc = System.ComponentModel;
 using System.Globalization;
 using Eto.Drawing;
 using System.Linq;
@@ -19,10 +19,10 @@ namespace Eto.Forms
 	[DesignTimeVisible(true)]
 	[DesignerCategory("Eto.Forms")]
 	#endif
-	[TypeConverter(typeof(ControlConverter))]
+	[sc.TypeConverter(typeof(ControlConverter))]
 	public partial class Control : BindableWidget, IMouseInputSource, IKeyboardInputSource, ICallbackSource
 	{
-		new IHandler Handler { get { return (IHandler)base.Handler; } }
+		new IHandler Handler => (IHandler)base.Handler;
 
 		/// <summary>
 		/// Gets a value indicating that the control is loaded onto a form, that is it has been created, added to a parent, and shown
@@ -33,7 +33,11 @@ namespace Eto.Forms
 		/// 
 		/// The <see cref="OnUnLoad"/> method will set this value to <c>false</c> when the control is removed from its parent
 		/// </remarks>
-		public bool Loaded { get; private set; }
+		public bool Loaded
+		{
+			get => GetState(StateFlag.Loaded);
+			private set => SetState(StateFlag.Loaded, value);
+		}
 
 		/// <summary>
 		/// Gets an enumeration of controls that are in the visual tree.
@@ -75,7 +79,7 @@ namespace Eto.Forms
 					var foundVisual = false;
 					foreach (var parent in Parents.OfType<Container>())
 					{
-						if (!foundVisual && parent.Properties.Get<bool>(IsVisualControl_Key))
+						if (!foundVisual && parent.GetState(StateFlag.IsVisualControl))
 							foundVisual = true;
 						else
 							return parent;
@@ -85,20 +89,14 @@ namespace Eto.Forms
 			}
 		}
 
-		static object IsVisualControl_Key = new object();
-
 		/// <summary>
 		/// Gets a value indicating this <see cref="T:Eto.Forms.Control"/> is part of the visual tree.
 		/// </summary>
 		/// <value><c>true</c> if is visual control; otherwise, <c>false</c>.</value>
 		public bool IsVisualControl
 		{
-			get {
-				if (Properties.ContainsKey(IsVisualControl_Key))
-					return Properties.Get<bool>(IsVisualControl_Key);
-				return Parent?.IsVisualControl ?? false; // traverse up logical tree
-			}
-			internal set { Properties.Set(IsVisualControl_Key, value); }
+			get => GetState(StateFlag.IsVisualControl, StateFlag.IsVisualControlHasValue) ?? Parent?.IsVisualControl ?? false; // traverse up logical tree
+			internal set => SetState(StateFlag.IsVisualControl, StateFlag.IsVisualControlHasValue, value);
 		}
 
 		static readonly object TagKey = new object();
@@ -491,6 +489,8 @@ namespace Eto.Forms
 		{
 			Properties.TriggerEvent(PreLoadKey, this, e);
 			Handler.OnPreLoad(e);
+
+			OnApplyCascadingStyles();
 		}
 
 		static readonly object LoadKey = new object();
@@ -803,8 +803,8 @@ namespace Eto.Forms
 		/// </summary>
 		public virtual int Width
 		{
-			get { return Handler.Size.Width; }
-			set { Size = new Size(value, Size.Height); }
+			get => Handler.Width;
+			set => Handler.Width = value;
 		}
 
 		/// <summary>
@@ -812,8 +812,8 @@ namespace Eto.Forms
 		/// </summary>
 		public virtual int Height
 		{
-			get { return Handler.Size.Height; }
-			set { Size = new Size(Size.Width, value); }
+			get => Handler.Height;
+			set => Handler.Height = value;
 		}
 
 		/// <summary>
@@ -826,7 +826,7 @@ namespace Eto.Forms
 		/// select text, but not change its contents.
 		/// </remarks>
 		/// <value><c>true</c> if enabled; otherwise, <c>false</c>.</value>
-		[DefaultValue(true)]
+		[sc.DefaultValue(true)]
 		public virtual bool Enabled
 		{
 			get => Handler.Enabled;
@@ -842,7 +842,7 @@ namespace Eto.Forms
 		/// of one of the panels is changed.
 		/// </remarks>
 		/// <value><c>true</c> if visible; otherwise, <c>false</c>.</value>
-		[DefaultValue(true)]
+		[sc.DefaultValue(true)]
 		public virtual bool Visible
 		{
 			get { return Handler.Visible; }
@@ -958,7 +958,7 @@ namespace Eto.Forms
 		void PostAttach()
 		{
 			// if the control is disposed before we get here Handler will be null, so omit calling OnLoadComplete
-			if (Handler != null)
+			if (!IsDisposed && Handler != null)
 				OnLoadComplete(EventArgs.Empty);
 		}
 
@@ -999,6 +999,12 @@ namespace Eto.Forms
 		{
 			using (Platform.Context)
 				OnUnLoad(e);
+		}
+
+		internal void TriggerStyleChanged(EventArgs e)
+		{
+			using (Platform.Context)
+				OnStyleChanged(e);
 		}
 
 		/// <summary>
@@ -1237,7 +1243,7 @@ namespace Eto.Forms
 		/// <see cref="PlatformFeatures.TabIndexWithCustomContainers"/> flag to determine if it is supported.
 		/// </remarks>
 		/// <value>The index of the control in the tab order.</value>
-		[DefaultValue(int.MaxValue)]
+		[sc.DefaultValue(int.MaxValue)]
 		public virtual int TabIndex
 		{
 			get { return Handler.TabIndex; }
@@ -1262,6 +1268,45 @@ namespace Eto.Forms
 		{
 			Handler.DoDragDrop(data, allowedEffects);
 		}
+
+		/// <summary>
+		/// Handles when the <see cref="Style"/> is changed.
+		/// </summary>
+		/// <remarks>
+		/// This applies the cascading styles to the control and any of its children.
+		/// </remarks>
+		protected override void OnStyleChanged(EventArgs e)
+		{
+			base.OnStyleChanged(e);
+
+			// already loaded, re-apply styles as they have changed
+			if (Loaded)
+				OnApplyCascadingStyles();
+		}
+
+		/// <summary>
+		/// Called when cascading styles should be applied to this control.
+		/// </summary>
+		/// <remarks>
+		/// You don't typically have to call this directly, but override it to apply styles to any child item(s)
+		/// that may need styling at the same time.
+		/// 
+		/// This is automatically done for any Container based control and its child controls.
+		/// </remarks>
+		protected virtual void OnApplyCascadingStyles() => ApplyStyles(this, Style);
+
+		/// <summary>
+		/// Applies the styles to the specified <paramref name="widget"/> up the parent chain.
+		/// </summary>
+		/// <remarks>
+		/// This traverses up the parent chain to apply any cascading styles defined in parent container objects.
+		/// 
+		/// Call this method on any child widget of a control.
+		/// </remarks>
+		/// <param name="widget">Widget to style.</param>
+		/// <param name="style">Style of the widget to apply.</param>
+		protected virtual void ApplyStyles(object widget, string style) => Parent?.ApplyStyles(widget, Style);
+
 
 		/// <summary>
 		/// Handles the disposal of this control
@@ -1590,6 +1635,16 @@ namespace Eto.Forms
 			/// </remarks>
 			/// <value>The current size of the control</value>
 			Size Size { get; set; }
+
+			/// <summary>
+			/// Gets or sets the width of the control size.
+			/// </summary>
+			int Width { get; set; }
+
+			/// <summary>
+			/// Gets or sets the height of the control size.
+			/// </summary>
+			int Height { get; set; }
 
 			/// <summary>
 			/// Gets or sets a value indicating whether this <see cref="Eto.Forms.Control"/> is enabled and accepts user input.

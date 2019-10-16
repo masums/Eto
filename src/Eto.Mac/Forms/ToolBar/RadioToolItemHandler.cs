@@ -1,5 +1,6 @@
 using System;
 using Eto.Forms;
+using System.Linq;
 #if XAMMAC2
 using AppKit;
 using Foundation;
@@ -36,10 +37,7 @@ namespace Eto.Mac.Forms.ToolBar
 			}
 		}
 
-		public override bool Selectable
-		{
-			get { return true; }
-		}
+		public override bool Selectable => true;
 
 		public override void ControlAdded (ToolBarHandler toolbar)
 		{
@@ -54,8 +52,17 @@ namespace Eto.Mac.Forms.ToolBar
 			if (toolbarHandler != null && toolbarHandler.Control != null)
 			{
 				isChecked = toolbarHandler.Control.SelectedItemIdentifier == Identifier;
+				foreach (var radioHandler in toolbarHandler.Widget.Items.Select(r => r.Handler).OfType<RadioToolItemHandler>())
+				{
+					if (!ReferenceEquals(this, radioHandler) && radioHandler.isChecked)
+					{
+						radioHandler.isChecked = false;
+						radioHandler.Widget.OnCheckedChanged(EventArgs.Empty);
+					}
+				}
 			}
 			Widget.OnClick(EventArgs.Empty);
+			Widget.OnCheckedChanged(EventArgs.Empty);
 		}
 	}
 }

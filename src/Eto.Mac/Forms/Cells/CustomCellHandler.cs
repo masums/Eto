@@ -52,7 +52,7 @@ namespace Eto.Mac.Forms.Cells
 
 		public override nfloat GetPreferredWidth(object value, CGSize cellSize, int row, object dataItem)
 		{
-			var args = new CellEventArgs(row, dataItem, CellStates.None);
+			var args = new CellEventArgs(ColumnHandler?.DataViewHandler as Grid, Widget, row, dataItem, CellStates.None);
 			var identifier = Callback.OnGetIdentifier(Widget, args) ?? string.Empty;
 			Control widthCell;
 			if (!widthCells.TryGetValue(identifier, out widthCell))
@@ -60,10 +60,11 @@ namespace Eto.Mac.Forms.Cells
 				widthCell = Callback.OnCreateCell(Widget, args);
 				if (widthCell == null)
 					return Callback.OnGetPreferredWidth(Widget, args);
-				widthCell.ToNative(true);
+				widthCell.AttachNative();
 				widthCells.Add(identifier, widthCell);
 			}
 			Callback.OnConfigureCell(Widget, args, widthCell);
+			widthCell.GetMacControl()?.InvalidateMeasure();
 
 			var result = widthCell.GetPreferredSize(SizeF.PositiveInfinity).Width;
 
@@ -130,7 +131,7 @@ namespace Eto.Mac.Forms.Cells
 				state |= CellStates.Selected;
 			if (tableColumn.Editable)
 				state |= CellStates.Editing;
-			var args = new MutableCellEventArgs(row, item, state);
+			var args = new MutableCellEventArgs(ColumnHandler.DataViewHandler as Grid, Widget, row, item, state);
 			var identifier = tableColumn.Identifier;
 			var id = Callback.OnGetIdentifier(Widget, args);
 			if (!string.IsNullOrEmpty(id))

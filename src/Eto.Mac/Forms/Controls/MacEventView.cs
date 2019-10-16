@@ -1,6 +1,7 @@
 using System;
 using Eto.Forms;
 using Eto.Drawing;
+using System.Diagnostics;
 #if XAMMAC2
 using AppKit;
 using Foundation;
@@ -33,57 +34,20 @@ using CGPoint = System.Drawing.PointF;
 
 namespace Eto.Mac.Forms.Controls
 {
-	public class MacEventView : NSView, IMacControl
+	public class MacEventView : NSBox, IMacControl
 	{
-		static readonly NSString CIOutputImage = new NSString("outputImage");
-		static readonly Selector selConvertSizeToBacking = new Selector("convertSizeToBacking:");
-
 		public MacEventView()
 		{
+			BoxType = NSBoxType.NSBoxCustom;
+			Transparent = true;
+			BorderWidth = 0;
+			BorderType = NSBorderType.NoBorder;
+			ContentViewMargins = CGSize.Empty;
 		}
 
 		public MacEventView(IntPtr handle)
 			: base(handle)
 		{
-		}
-
-		public static void Colourize(NSView control, Color color, Action drawAction)
-		{
-			var size = control.Frame.Size;
-			if (size.Width <= 0 || size.Height <= 0)
-				return;
-			var image = new NSImage(size);
-			
-			image.LockFocusFlipped(!control.IsFlipped);
-			drawAction();
-			image.UnlockFocus();
-
-			var ciImage = CIImage.FromCGImage(image.CGImage);
-
-			CGSize realSize;
-			if (control.RespondsToSelector(selConvertSizeToBacking))
-				realSize = control.ConvertSizeToBacking(size);
-			else
-				realSize = control.ConvertSizeToBase(size);
-
-			var filter2 = new CIColorControls();
-			filter2.SetDefaults();
-			filter2.Image = ciImage;
-			filter2.Saturation = 0.0f;
-			ciImage = (CIImage)filter2.ValueForKey(CIOutputImage);
-
-			var filter3 = new CIColorMatrix();
-			filter3.SetDefaults();
-			filter3.Image = ciImage;
-			filter3.RVector = new CIVector(0, color.R, 0);
-			filter3.GVector = new CIVector(color.G, 0, 0);
-			filter3.BVector = new CIVector(0, 0, color.B);
-			filter3.AVector = new CIVector(0, 0, 0, color.A);
-			ciImage = (CIImage)filter3.ValueForKey(CIOutputImage);
-
-			// create separate context so we can force using the software renderer, which is more than fast enough for this
-			var ciContext = CIContext.FromContext(NSGraphicsContext.CurrentContext.GraphicsPort, new CIContextOptions { UseSoftwareRenderer = true });
-			ciContext.DrawImage(ciImage, new CGRect(CGPoint.Empty, size), new CGRect(CGPoint.Empty, realSize));
 		}
 
 		public WeakReference WeakHandler { get; set; }
@@ -101,29 +65,85 @@ namespace Eto.Mac.Forms.Controls
 
 		public static bool KeyDown(Control control, NSEvent theEvent)
 		{
-			if (control != null)
+			var handler = control?.Handler as IMacViewHandler;
+			if (handler == null)
+				return false;
+
+			var kpea = theEvent.ToEtoKeyEventArgs();
+			handler.OnKeyDown(kpea);
+			return kpea.Handled;
+		}
+
+		public static bool FlagsChanged(Control control, NSEvent theEvent)
+		{
+			var handler = control?.Handler as IMacViewHandler;
+			if (handler == null)
+				return false;
+
+			Keys key;
+			NSEventModifierMask requiredModifier;
+
+			// check which key is being pressed currently and figure out correct modifier mask for that key alone
+			switch (theEvent.KeyCode)
 			{
-				var handler = control.Handler as IMacViewHandler;
-				var kpea = theEvent.ToEtoKeyEventArgs();
-				handler.OnKeyDown(kpea);
-				return kpea.Handled;
+				case 56:
+					key = Keys.LeftShift;
+					requiredModifier = (NSEventModifierMask)0x20002;
+					break;
+				case 60:
+					key = Keys.RightShift;
+					requiredModifier = (NSEventModifierMask)0x20004;
+					break;
+				case 59:
+					key = Keys.LeftControl;
+					requiredModifier = (NSEventModifierMask)0x40001;
+					break;
+				case 57:
+					key = Keys.RightControl;
+					requiredModifier = (NSEventModifierMask)0x40002; // correct?  I don't have a keyboard with right control key.
+					break;
+				case 58:
+					key = Keys.LeftAlt;
+					requiredModifier = (NSEventModifierMask)0x80020;
+					break;
+				case 61:
+					key = Keys.RightAlt;
+					requiredModifier = (NSEventModifierMask)0x80040;
+					break;
+				case 55:
+					key = Keys.LeftApplication;
+					requiredModifier = (NSEventModifierMask)0x100008;
+					break;
+				case 54:
+					key = Keys.RightApplication;
+					requiredModifier = (NSEventModifierMask)0x100010;
+					break;
+				default:
+					Debug.WriteLine($"Unknown FlagsChanged Key: {theEvent.KeyCode}, Modifiers: {theEvent.ModifierFlags}");
+					return false;
 			}
-			return false;
+			// test the modifier to see if the key was pressed or released
+			var modifierFlags = theEvent.ModifierFlags;
+			var type = modifierFlags.HasFlag(requiredModifier) ? KeyEventType.KeyDown : KeyEventType.KeyUp;
+
+			key |= modifierFlags.ToEto();
+			var kpea = new KeyEventArgs(key, type);
+			if (type == KeyEventType.KeyDown)
+				handler.OnKeyDown(kpea);
+			else
+				handler.OnKeyUp(kpea);
+			return kpea.Handled;
 		}
 
 		public static bool KeyUp(Control control, NSEvent theEvent)
 		{
-			if (control != null)
-			{
-				var handler = control.Handler as IMacViewHandler;
-				if (handler != null)
-				{
-					var kpea = theEvent.ToEtoKeyEventArgs ();
-					handler.Callback.OnKeyUp (control, kpea);
-					return kpea.Handled;
-				}
-			}
-			return false;
+			var handler = control?.Handler as IMacViewHandler;
+			if (handler == null)
+				return false;
+
+			var kpea = theEvent.ToEtoKeyEventArgs();
+			handler.Callback.OnKeyUp(control, kpea);
+			return kpea.Handled;
 		}
 
 		public override void ResetCursorRects()

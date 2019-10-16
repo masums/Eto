@@ -95,7 +95,7 @@ namespace Eto.Mac.Forms.Controls
 				var handler = Handler;
 				if (handler != null)
 				{
-					var args = MacConversions.GetMouseEvent(handler.ContainerControl, theEvent, false);
+					var args = MacConversions.GetMouseEvent(handler, theEvent, false);
 					if (theEvent.ClickCount >= 2)
 						handler.Callback.OnMouseDoubleClick(handler.Widget, args);
 					else
@@ -137,6 +137,12 @@ namespace Eto.Mac.Forms.Controls
 			public NSDragOperation DraggingSessionSourceOperationMask(NSDraggingSession session, IntPtr context)
 			{
 				return AllowedOperation ?? NSDragOperation.None;
+			}
+
+			public override void Layout()
+			{
+				Handler?.PerformLayout();
+				base.Layout();
 			}
 		}
 
@@ -243,6 +249,20 @@ namespace Eto.Mac.Forms.Controls
 				return true;
 			}
 
+			[Export("tableView:draggingSession:endedAtPoint:operation:")]
+			public new void DraggingSessionEnded(NSTableView tableView, NSDraggingSession draggingSession, CGPoint endedAtScreenPoint, NSDragOperation operation)
+			{
+				var h = Handler;
+				if (h == null)
+					return;
+
+				if (h.CustomSelectedRows != null)
+				{
+					h.CustomSelectedRows = null;
+					h.Callback.OnSelectionChanged(h.Widget, EventArgs.Empty);
+				}
+			}
+
 			public override bool WriteRows(NSTableView tableView, NSIndexSet rowIndexes, NSPasteboard pboard)
 			{
 				var h = Handler;
@@ -254,11 +274,36 @@ namespace Eto.Mac.Forms.Controls
 					h.Control.AllowedOperation = null;
 					// give MouseMove event a chance to start the drag
 					h.DragPasteboard = pboard;
-					h.CustomSelectedRows = rowIndexes.Select(r => (int)r).ToList();
-					var args = MacConversions.GetMouseEvent(h.ContainerControl, NSApplication.SharedApplication.CurrentEvent, false);
+
+
+					// check if the dragged rows are different than the selection so we can fire a changed event
+					var dragRows = rowIndexes.Select(r => (int)r).ToList();
+					bool isDifferentSelection = (nint)dragRows.Count != h.Control.SelectedRowCount;
+					if (!isDifferentSelection)
+					{
+						// same count, ensure they're not different rows
+						// typically only tests one entry here, as there's no way to drag more than a single non-selected item.
+						var selectedRows = h.Control.SelectedRows.ToArray();
+						for (var i = 0; i < selectedRows.Length; i++)
+						{
+							if (!dragRows.Contains((int)selectedRows[i]))
+							{
+								isDifferentSelection = true;
+								break;
+							}
+						}
+					}
+
+					if (isDifferentSelection)
+					{
+						h.CustomSelectedRows = dragRows;
+						h.Callback.OnSelectionChanged(h.Widget, EventArgs.Empty);
+					}
+
+					var args = MacConversions.GetMouseEvent(h, NSApplication.SharedApplication.CurrentEvent, false);
 					h.Callback.OnMouseMove(h.Widget, args);
 					h.DragPasteboard = null;
-					h.CustomSelectedRows = null;
+
 					return h.Control.AllowedOperation != null;
 				}
 
@@ -289,10 +334,11 @@ namespace Eto.Mac.Forms.Controls
 				{
 					Handler.Callback.OnSelectionChanged(Handler.Widget, EventArgs.Empty);
 					var columns = NSIndexSet.FromNSRange(new NSRange(0, Handler.Control.TableColumns().Length));
-					if (previouslySelected != null)
+					if (previouslySelected?.Count > 0)
 						Handler.Control.ReloadData(previouslySelected, columns);
 					var selected = Handler.Control.SelectedRows;
-					Handler.Control.ReloadData(selected, columns);
+					if (selected?.Count > 0)
+						Handler.Control.ReloadData(selected, columns);
 					previouslySelected = selected;
 				}
 			}
@@ -520,8 +566,8 @@ namespace Eto.Mac.Forms.Controls
 					collection.Unregister();
 				collection = new CollectionHandler { Handler = this };
 				collection.Register(value);
-				if (Widget.Loaded)
-					AutoSizeColumns(true);
+				ResetAutoSizedColumns();
+				InvalidateMeasure();
 			}
 		}
 
@@ -535,6 +581,10 @@ namespace Eto.Mac.Forms.Controls
 		public void ReloadData(IEnumerable<int> rows)
 		{
 			Control.ReloadData(NSIndexSet.FromArray(rows.Select(r => (nuint)r).ToArray()), NSIndexSet.FromNSRange(new NSRange(0, Control.TableColumns().Length)));
+			if (Widget.Columns.Any(r => r.AutoSize))
+			{
+				AutoSizeColumns(true);
+			}
 		}
 
 		public object GetCellAt(PointF location, out int column, out int row)

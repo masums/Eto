@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Eto.Forms;
 using System.Linq;
 using System.Collections.Generic;
@@ -93,10 +93,9 @@ namespace Eto.Mac.Forms.Controls
 			}
 		}
 
-		protected override NSComboBox CreateControl()
-		{
-			return new EtoComboBox();
-		}
+		protected override bool DefaultUseAlignmentFrame => true;
+
+		protected override NSComboBox CreateControl() => new EtoComboBox();
 
 		protected override void Initialize()
 		{
@@ -156,7 +155,8 @@ namespace Eto.Mac.Forms.Controls
 		protected override SizeF GetNaturalSize(SizeF availableSize)
 		{
 			var size = base.GetNaturalSize(availableSize);
-			return new SizeF(Math.Max(size.Width, 100), size.Height);
+			// note: natural height reported by NSComboBox.FittingSize is 25, but should be 26.
+			return new SizeF(Math.Max(size.Width, 100), size.Height + 1);
 		}
 
 		static void SelectionDidChange(ObserverActionEventArgs e)
@@ -233,11 +233,10 @@ namespace Eto.Mac.Forms.Controls
 
 		public IEnumerable<object> DataStore
 		{
-			get { return collection == null ? null : collection.Collection; }
+			get => collection?.Collection;
 			set
 			{
-				if (collection != null)
-					collection.Unregister();
+				collection?.Unregister();
 				collection = new CollectionHandler { Handler = this };
 				collection.Register(value);
 			}
@@ -342,5 +341,25 @@ namespace Eto.Mac.Forms.Controls
 			get { return Control.Bordered; }
 			set { Control.Bordered = value; }
 		}
+
+		IIndirectBinding<string> itemTextBinding;
+		public IIndirectBinding<string> ItemTextBinding
+		{
+			get => itemTextBinding;
+			set
+			{
+				itemTextBinding = value;
+				var dataStore = DataStore;
+				if (dataStore != null)
+				{
+					int selectedIndex = SelectedIndex;
+					// re-add all items
+					DataStore = dataStore;
+					SelectedIndex = selectedIndex;
+				}
+			}
+		}
+
+		public IIndirectBinding<string> ItemKeyBinding { get; set; }
 	}
 }

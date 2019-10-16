@@ -54,6 +54,8 @@ namespace Eto.Mac.Forms.Controls
 			}
 		}
 
+		protected override bool DefaultUseAlignmentFrame => true;
+
 		protected override NSBox CreateControl() => new EtoBox(this);
 
 		protected override void Initialize()
@@ -109,7 +111,7 @@ namespace Eto.Mac.Forms.Controls
 
 		public override SizeF GetPreferredSize(SizeF availableSize)
 		{
-			var boundsSize = new SizeF(14, (float)TitleCell.CellSize.Height + 8);
+			var boundsSize = new SizeF(16, (float)TitleCell.CellSize.Height + 8);
 			availableSize -= boundsSize;
 
 			return base.GetPreferredSize(availableSize) + boundsSize;
@@ -126,5 +128,7 @@ namespace Eto.Mac.Forms.Controls
 				Control.SetNeedsDisplay();
 			}
 		}
+
+		protected override bool UseNSBoxBackgroundColor => false;
 	}
 }

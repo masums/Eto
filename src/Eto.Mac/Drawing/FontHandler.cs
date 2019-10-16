@@ -121,6 +121,9 @@ namespace Eto.Mac.Drawing
 				case SystemFont.StatusBar:
 					Control = NSFont.SystemFontOfSize((nfloat)(fontSize ?? (float)NSFont.SystemFontSize));
 					break;
+				case SystemFont.User:
+					Control = NSFont.UserFontOfSize((nfloat)(fontSize ?? (float)NSFont.SystemFontSize));
+					break;
 #endif
 				default:
 					throw new NotSupportedException();
@@ -324,7 +327,7 @@ namespace Eto.Mac.Drawing
 			return NSDictionary.FromObjectsAndKeys(
 				new NSObject[]
 				{
-					Control,
+					Control ?? NSFont.UserFontOfSize(Size),
 					new NSNumber((int)(decoration.HasFlag(FontDecoration.Underline) ? NSUnderlineStyle.Single : NSUnderlineStyle.None)),
 					NSNumber.FromBoolean(decoration.HasFlag(FontDecoration.Strikethrough))
 				},

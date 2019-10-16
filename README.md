@@ -2,7 +2,7 @@ Eto.Forms
 =========
 ### A cross platform desktop and mobile user interface framework
 
-[![Build Status](https://dev.azure.com/curtiswensley/Eto.Forms/_apis/build/status/picoe.Eto?branchName=develop)](https://dev.azure.com/curtiswensley/Eto.Forms/_build/latest?definitionId=1&branchName=develop)
+[![Build Status](https://dev.azure.com/picoe/Eto.Forms/_apis/build/status/picoe.Eto?branchName=develop)](https://dev.azure.com/picoe/Eto.Forms/_build/latest?definitionId=1&branchName=develop)
 [![forums](https://img.shields.io/badge/join-the%20forums-yellowgreen.svg)](http://groups.google.com/group/eto-forms)
 [![Gitter](https://img.shields.io/gitter/room/nwjs/nw.js.svg)](https://gitter.im/picoe/Eto)
 [![wiki](https://img.shields.io/badge/browse-the%20wiki-orange.svg)](https://github.com/picoe/Eto/wiki)
@@ -80,9 +80,9 @@ Applications
 * [JabbR.Desktop](https://github.com/JabbR/JabbR.Desktop) - JabbR client
 * [Notedown](https://github.com/cwensley/Notedown) - Note taking application
 * [Eto.Test](https://github.com/picoe/Eto/tree/master/test/Eto.Test) - Application to test the functionality of each widget
-* [DotImaging.UI](https://github.com/dajuric/dot-imaging) - Portable UI elements for DotImaging
 * [DWSIM](https://github.com/DanWBR/dwsim5) - Chemical Process Simulator
 * [Termission](https://github.com/junian/termission) - Cross-platform Serial/TCP Terminal with Scriptable Auto-Response
+* [Visual SEO Studio](https://visual-seo.com/) - Technical SEO Auditing Tool
 
 Assemblies
 ----------
@@ -92,12 +92,14 @@ Your project only needs to reference Eto.dll, and include the corresponding plat
 * Eto.dll - Eto.Forms (UI), Eto.Drawing (Graphics), and platform loading
 * Eto.Mac.dll - MonoMac platform for OS X using 32-bit mono
 * Eto.Mac64.dll - MonoMac platform for OS X using 64-bit mono
-* Eto.XamMac.dll - Xamarin.Mac platform for OS X to embed mono
+* Eto.XamMac.dll - Xamarin.Mac Classic platform for OS X to embed mono
+* Eto.XamMac2.dll - Xamarin.Mac Unified platform for OS X to embed mono
 * Eto.WinForms.dll - Windows Forms platform using GDI+ for graphics
 * Eto.Direct2D.dll - Windows Forms platform using Direct2D for graphics
 * Eto.Wpf.dll - Windows Presentation Foundation platform
-* Eto.Gtk2.dll - Gtk2 platform
-* Eto.Gtk3.dll - Gtk3 platform
+* Eto.Gtk.dll - Gtk+3 platform for Mac, Windows, and Linux.
+* Eto.Gtk2.dll - Gtk2 platform using gtk-sharp2 on Mac, Windows, and Linux.
+* Eto.Gtk3.dll - [deprecated] Gtk3 platform for running on Linux with gtk-sharp3 package
 * Eto.iOS.dll - Xamarin.iOS platform
 * Eto.Android.dll - Xamarin.Android platform
 

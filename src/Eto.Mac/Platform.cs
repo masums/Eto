@@ -23,12 +23,28 @@ using Foundation;
 using CoreGraphics;
 using ObjCRuntime;
 using CoreAnimation;
+using CoreImage;
 #else
 using MonoMac.AppKit;
 using MonoMac.Foundation;
 using MonoMac.CoreGraphics;
 using MonoMac.ObjCRuntime;
 using MonoMac.CoreAnimation;
+using MonoMac.CoreImage;
+#if Mac64
+using nfloat = System.Double;
+using nint = System.Int64;
+using nuint = System.UInt64;
+#else
+using nfloat = System.Single;
+using nint = System.Int32;
+using nuint = System.UInt32;
+#endif
+#if SDCOMPAT
+using CGSize = System.Drawing.SizeF;
+using CGRect = System.Drawing.RectangleF;
+using CGPoint = System.Drawing.PointF;
+#endif
 #endif
 
 namespace Eto.Mac
@@ -57,6 +73,55 @@ namespace Eto.Mac
 			PlatformFeatures.DrawableWithTransparentContent
 			| PlatformFeatures.CustomCellSupportsControlView
 			| PlatformFeatures.TabIndexWithCustomContainers;
+
+		static Platform()
+		{
+			Style.Add<ThemedTextStepperHandler>(null, h =>
+			{
+				h.Control.Spacing = new Size(3, 0);
+			});
+
+
+			Style.Add<ThemedPropertyGrid>(null, c =>
+			{
+				c.ShowCategoriesChanged += (sender, e) =>
+				{
+					if (c.FindChild<TreeGridView>()?.Handler is TreeGridViewHandler tvh)
+						tvh.ShowGroups = c.ShowCategories;
+				};
+				c.Styles.Add<TreeGridViewHandler>(null, tvh =>
+				{
+					tvh.ShowGroups = c.ShowCategories;
+					tvh.AllowGroupSelection = false;
+					tvh.Control.AutoresizesOutlineColumn = false;
+				});
+			});
+
+			Style.Add<ThemedCollectionEditor>(null, c =>
+			{
+				c.Styles.Add<SegmentedButtonHandler>(null, sbh =>
+				{
+#if XAMMAC2
+					sbh.Control.ControlSize = NSControlSize.Small;
+#else
+					Messaging.void_objc_msgSend_IntPtr(sbh.Control.Handle, Selector.GetHandle("setControlSize:"), (IntPtr)NSControlSize.Small);
+#endif
+				});
+				c.Styles.Add<ButtonSegmentedItem>(null, bsi =>
+				{
+					if (bsi.Text == "+")
+					{
+						bsi.Text = null;
+						bsi.Image = new Icon(new IconHandler(NSImage.ImageNamed(NSImageName.AddTemplate)));
+					}
+					else if (bsi.Text == "-")
+					{
+						bsi.Text = null;
+						bsi.Image = new Icon(new IconHandler(NSImage.ImageNamed(NSImageName.RemoveTemplate)));
+					}
+				});
+			});
+		}
 
 		public Platform()
 		{
@@ -164,6 +229,12 @@ namespace Eto.Mac
 			p.Add<FilePicker.IHandler>(() => new ThemedFilePickerHandler());
 			p.Add<DocumentControl.IHandler>(() => new ThemedDocumentControlHandler());
 			p.Add<DocumentPage.IHandler>(() => new ThemedDocumentPageHandler());
+			p.Add<SegmentedButton.IHandler>(() => new SegmentedButtonHandler());
+			p.Add<ButtonSegmentedItem.IHandler>(() => new ButtonSegmentedItemHandler());
+			p.Add<MenuSegmentedItem.IHandler>(() => new MenuSegmentedItemHandler());
+			p.Add<ToggleButton.IHandler>(() => new ToggleButtonHandler());
+			p.Add<PropertyGrid.IHandler>(() => new ThemedPropertyGridHandler());
+			p.Add<CollectionEditor.IHandler>(() => new ThemedCollectionEditorHandler());
 
 			// Forms.Menu
 			p.Add<CheckMenuItem.IHandler>(() => new CheckMenuItemHandler());
@@ -205,7 +276,7 @@ namespace Eto.Mac
 			p.Add<Screen.IScreensHandler>(() => new ScreensHandler());
 			p.Add<Keyboard.IHandler>(() => new KeyboardHandler());
 			p.Add<FixedMaskedTextProvider.IHandler>(() => new FixedMaskedTextProviderHandler());
-			p.Add<DataObject.IHandler>(() => new DataObjectHandler());
+			p.Add<DataObject.IHandler>(() => new MemoryDataObjectHandler());
 			p.Add<OpenWithDialog.IHandler>(() => new OpenWithDialogHandler());
 			p.Add<Notification.IHandler>(() => new NotificationHandler());
 			p.Add<TrayIndicator.IHandler>(() => new TrayIndicatorHandler());
@@ -227,14 +298,14 @@ namespace Eto.Mac
 		{
 			get
 			{
-				var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
-
-				var assemblyDir = Path.GetDirectoryName(assembly.Location);
-				// location will be empty when embedded via mkbundle, ensure bundlepath is an .app bundle
-				if (string.IsNullOrEmpty(assemblyDir))
-					return NSBundle.MainBundle?.BundlePath.EndsWith(".app", StringComparison.Ordinal) == true;
-
-				return NSBundle.MainBundle != null && assembly.Location.StartsWith(NSBundle.MainBundle.BundlePath, StringComparison.Ordinal);
+				var bundle = NSBundle.MainBundle;
+				if (bundle == null)
+					return false;
+				if (!bundle.BundlePath.EndsWith(".app", StringComparison.Ordinal))
+					return false;
+				if (!bundle.IsLoaded)
+					return false;
+				return true;
 			}
 		}
 

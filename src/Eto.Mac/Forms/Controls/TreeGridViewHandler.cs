@@ -61,6 +61,24 @@ namespace Eto.Mac.Forms.Controls
 		int suppressExpandCollapseEvents;
 		int skipSelectionChanged;
 
+		static readonly object ShowGroupItems_Key = new object();
+		static readonly object AllowGroupSelection_Key = new object();
+
+		/// <summary>
+		/// Gets or sets a value indicating that the top level will be shown as groups
+		/// </summary>
+		public bool ShowGroups
+		{
+			get => Widget.Properties.Get<bool>(ShowGroupItems_Key);
+			set => Widget.Properties.Set(ShowGroupItems_Key, value);
+		}
+
+		public bool AllowGroupSelection
+		{
+			get => Widget.Properties.Get<bool>(AllowGroupSelection_Key);
+			set => Widget.Properties.Set(AllowGroupSelection_Key, value);
+		}
+
 		public class EtoTreeItem : NSObject
 		{
 			Dictionary<int, EtoTreeItem> items;
@@ -114,6 +132,16 @@ namespace Eto.Mac.Forms.Controls
 			bool? collapsedItemIsSelected;
 			ITreeGridItem lastSelected;
 
+			public override bool IsGroupItem(NSOutlineView outlineView, NSObject item)
+			{
+				return Handler.ShowGroups && item != null && outlineView.LevelForItem(item) == 0;
+			}
+
+			public override bool ShouldSelectItem(NSOutlineView outlineView, NSObject item)
+			{
+				return Handler.AllowGroupSelection || !IsGroupItem(outlineView, item);
+			}
+
 			public override bool ShouldEditTableColumn(NSOutlineView outlineView, NSTableColumn tableColumn, NSObject item)
 			{
 				var h = Handler;
@@ -135,7 +163,7 @@ namespace Eto.Mac.Forms.Controls
 				if (theEvent.ButtonMask != 0)
 				{
 					// user is dragging the mouse, fire mouse move notifications
-					var args = MacConversions.GetMouseEvent(Handler.ContainerControl, theEvent, false);
+					var args = MacConversions.GetMouseEvent(Handler, theEvent, false);
 
 				}
 			}
@@ -240,6 +268,9 @@ namespace Eto.Mac.Forms.Controls
 
 			public override NSView GetView(NSOutlineView outlineView, NSTableColumn tableColumn, NSObject item)
 			{
+				if (tableColumn == null && Handler.ShowGroups)
+					tableColumn = outlineView.TableColumns()[0];
+
 				var colHandler = Handler.GetColumn(tableColumn);
 				if (colHandler != null && colHandler.DataCell != null)
 				{
@@ -249,7 +280,7 @@ namespace Eto.Mac.Forms.Controls
 						return cellHandler.GetViewForItem(outlineView, tableColumn, -1, item, (obj, row) => obj != null ? ((EtoTreeItem)obj).Item : null);
 					}
 				}
-				return outlineView.MakeView(tableColumn.Identifier, this);
+				return outlineView.MakeView(tableColumn?.Identifier ?? string.Empty, this);
 			}
 		}
 
@@ -260,6 +291,9 @@ namespace Eto.Mac.Forms.Controls
 
 			public override NSObject GetObjectValue(NSOutlineView outlineView, NSTableColumn tableColumn, NSObject item)
 			{
+				if (tableColumn == null && Handler.ShowGroups)
+					tableColumn = outlineView.TableColumns()[0];
+
 				var colHandler = Handler.GetColumn(tableColumn);
 				if (colHandler != null)
 				{
@@ -426,6 +460,24 @@ namespace Eto.Mac.Forms.Controls
 				return true;
 			}
 
+			[Export("outlineView:draggingSession:endedAtPoint:operation:")]
+#if XAMMAC
+			public new void DraggingSessionEnded(NSOutlineView outlineView, NSDraggingSession session, CGPoint screenPoint, NSDragOperation operation)
+#else
+			public void DraggingSessionEnded(NSOutlineView outlineView, NSDraggingSession session, CGPoint screenPoint, NSDragOperation operation)
+#endif
+			{
+				var h = Handler;
+				if (h == null)
+					return;
+
+				if (h.CustomSelectedItems != null)
+				{
+					h.CustomSelectedItems = null;
+					h.Callback.OnSelectionChanged(h.Widget, EventArgs.Empty);
+				}
+			}
+
 			public override bool OutlineViewwriteItemstoPasteboard(NSOutlineView outlineView, NSArray items, NSPasteboard pboard)
 			{
 				var h = Handler;
@@ -437,11 +489,32 @@ namespace Eto.Mac.Forms.Controls
 					h.Control.AllowedOperation = null;
 					// give MouseMove event a chance to start the drag
 					h.DragPasteboard = pboard;
-					h.CustomSelectedItems = GetItems(items).ToList();
-					var args = MacConversions.GetMouseEvent(h.ContainerControl, NSApplication.SharedApplication.CurrentEvent, false);
+
+					// check if the items are different than the selection so we can fire a changed event
+					bool isDifferentSelection = (nint)items.Count != h.Control.SelectedRowCount;
+					if (!isDifferentSelection)
+					{
+						// same count, ensure they're not different rows
+						// typically only tests one entry here, as there's no way to drag more than a single non-selected item.
+						var selectedRows = h.Control.SelectedRows.ToArray();
+						for (var i = 0; i < selectedRows.Length; i++)
+						{
+							if (items.ValueAt((nuint)i) != h.Control.ItemAtRow((nint)selectedRows[i]).Handle)
+							{
+								isDifferentSelection = true;
+								break;
+							}
+						}
+					}
+
+					if (isDifferentSelection)
+					{
+						h.CustomSelectedItems = GetItems(items).ToList();
+						h.Callback.OnSelectionChanged(h.Widget, EventArgs.Empty);
+					}
+					var args = MacConversions.GetMouseEvent(h, NSApplication.SharedApplication.CurrentEvent, false);
 					h.Callback.OnMouseMove(h.Widget, args);
 					h.DragPasteboard = null;
-					h.CustomSelectedItems = null;
 					return h.Control.AllowedOperation != null;
 				}
 
@@ -472,7 +545,7 @@ namespace Eto.Mac.Forms.Controls
 				var handler = Handler;
 				if (handler != null)
 				{
-					var args = MacConversions.GetMouseEvent(handler.ContainerControl, theEvent, false);
+					var args = MacConversions.GetMouseEvent(handler, theEvent, false);
 					if (theEvent.ClickCount >= 2)
 						handler.Callback.OnMouseDoubleClick(handler.Widget, args);
 					else
@@ -516,6 +589,12 @@ namespace Eto.Mac.Forms.Controls
 				ColumnAutoresizingStyle = NSTableViewColumnAutoresizingStyle.None;
 				SetDraggingSourceOperationMask(NSDragOperation.All, true);
 				SetDraggingSourceOperationMask(NSDragOperation.All, false);
+			}
+
+			public override void Layout()
+			{
+				Handler?.PerformLayout();
+				base.Layout();
 			}
 		}
 
@@ -774,7 +853,10 @@ namespace Eto.Mac.Forms.Controls
 			bool isSelectionChanged = false;
 			foreach (var sel in selection)
 			{
-				var row = Control.RowForItem(GetCachedItem(sel as ITreeGridItem));
+				var cachedItem = GetCachedItem(sel as ITreeGridItem);
+				if (cachedItem == null)
+					continue;
+				var row = Control.RowForItem(cachedItem);
 				if (row >= 0)
 					Control.SelectRow((nnint)row, true);
 				else

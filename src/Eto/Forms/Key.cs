@@ -1,7 +1,7 @@
-﻿﻿﻿﻿﻿using System;
+﻿﻿﻿using System;
 using System.Text;
 using System.Collections.Generic;
-using System.ComponentModel;
+using sc = System.ComponentModel;
 using System.Diagnostics;
 
 namespace Eto.Forms
@@ -10,7 +10,7 @@ namespace Eto.Forms
 	/// Enumeration of values that correspond to physical keys on a keyboard
 	/// </summary>
 	[Flags]
-	[TypeConverter(typeof(KeysConverter))]
+	[sc.TypeConverter(typeof(KeysConverter))]
 	public enum Keys
 	{
 		/// <summary>No key</summary>
@@ -178,6 +178,7 @@ namespace Eto.Forms
 		KeypadEqual = 0x004F,
 
 		/// <summary>The menu (alt) key</summary>
+		[Obsolete("Since 2.5. Use LeftAlt and RightAlt")]
 		Menu = 0x0050,
 		/// <summary>The Backslash '\' key</summary>
 		Backslash = 0x0051,
@@ -226,6 +227,23 @@ namespace Eto.Forms
 		Keypad8 = 0x0078,
 		/// <summary>The keypad/number pad '9' key</summary>
 		Keypad9 = 0x0079,
+
+		/// <summary>The left shift key</summary>
+		LeftShift = 0x007A,
+		/// <summary>The right shift key</summary>
+		RightShift = 0x007B,
+		/// <summary>The left control key</summary>
+		LeftControl = 0x007C,
+		/// <summary>The right control key</summary>
+		RightControl = 0x007D,
+		/// <summary>The left alt/option key</summary>
+		LeftAlt = 0x007E,
+		/// <summary>The right alt/option key</summary>
+		RightAlt = 0x007F,
+		/// <summary>The right application/windows key</summary>
+		LeftApplication = 0x0080,
+		/// <summary>The right application/windows key</summary>
+		RightApplication = 0x0081,
 
 		/// <summary>The Shift Key Modifier</summary>
 		Shift = 0x1000,

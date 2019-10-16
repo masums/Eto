@@ -22,6 +22,13 @@ namespace Eto.Test
 
 		public List<Assembly> TestAssemblies { get; private set; }
 
+		protected override void OnLocalizeString(LocalizeEventArgs e)
+		{
+			base.OnLocalizeString(e);
+			//Console.WriteLine($"Localize {e.Source}:{e.Text}");
+			//e.LocalizedText = e.Text + "_localized";
+		}
+
 		public TestApplication(Platform platform)
 			: base(platform)
 		{
@@ -57,8 +64,8 @@ namespace Eto.Test
 			// show the main form
 			MainForm.Show();
 #if NETSTANDARD2_0
-			var elapsedTime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime();
-			Log.Write(this, $"Startup time: {elapsedTime}");
+//			var elapsedTime = DateTime.UtcNow - Process.GetCurrentProcess().StartTime.ToUniversalTime();
+	//		Log.Write(this, $"Startup time: {elapsedTime}");
 #endif
 		}
 

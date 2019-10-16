@@ -1,5 +1,6 @@
 using System;
 using Eto.Forms;
+using Eto.Drawing;
 
 #if XAMMAC2
 using AppKit;
@@ -33,33 +34,73 @@ using CGPoint = System.Drawing.PointF;
 
 namespace Eto.Mac.Forms.Controls
 {
-	public class EtoCenteredButton : NSButtonCell
+
+	public abstract class EtoCenteredButtonCell : NSButtonCell
 	{
 		nfloat defaultHeight;
-		public EtoCenteredButton(nfloat defaultHeight)
+
+		protected abstract nfloat GetDefaultHeight();
+
+		protected virtual nfloat Offset => 0f;
+
+		public override void SetButtonType(NSButtonType aType)
 		{
-			this.defaultHeight = defaultHeight;
+			base.SetButtonType(aType);
+			defaultHeight = GetDefaultHeight();
 		}
+
+		public override NSControlSize ControlSize
+		{
+			get => base.ControlSize;
+			set
+			{
+				base.ControlSize = value;
+				defaultHeight = GetDefaultHeight();
+			}
+		}
+
+		nfloat ButtonOffset => (nfloat)Math.Max(0, Math.Ceiling((AttributedTitle.Size.Height - defaultHeight) / 2 - 1));
 
 		public override CGRect DrawingRectForBounds(CGRect theRect)
 		{
 			var rect = base.DrawingRectForBounds(theRect);
-			var titleSize = AttributedTitle.Size;
-			rect.Y += (nfloat)Math.Max(0, (titleSize.Height - defaultHeight) / 2);
+			rect.Y += ButtonOffset;
+			rect.Y += Offset;
 			return rect;
 		}
 
 		public override CGRect TitleRectForBounds(CGRect theRect)
 		{
-			var titleSize = AttributedTitle.Size;
 			var rect = base.TitleRectForBounds(theRect);
-			rect.Y -= (nfloat)Math.Max(0, (titleSize.Height - defaultHeight) / 2);
+			rect.Y -= ButtonOffset;
+			rect.Y -= Offset;
 			return rect;
 		}
 	}
 
 	public class CheckBoxHandler : MacButton<NSButton, CheckBox, CheckBox.ICallback>, CheckBox.IHandler
 	{
+		public class EtoCheckCenteredButtonCell : EtoCenteredButtonCell
+		{
+			// check boxes get clipped at the top in mini mode using the alignment rects. macOS 10.14.6
+			// see Eto.Test.Mac.UnitTests.CheckBoxTests.ButtonShouldNotBeClipped()
+			protected override nfloat Offset => ControlSize == NSControlSize.Mini ? 0.5f : 0;
+
+			protected override nfloat GetDefaultHeight()
+			{
+				switch (ControlSize)
+				{
+					default:
+					case NSControlSize.Regular:
+						return 14;
+					case NSControlSize.Small:
+						return 12;
+					case NSControlSize.Mini:
+						return 10;
+				}
+			}
+		}
+
 		public class EtoCheckBoxButton : NSButton, IMacControl
 		{
 			public WeakReference WeakHandler { get; set; }
@@ -70,26 +111,17 @@ namespace Eto.Mac.Forms.Controls
 				set { WeakHandler = new WeakReference(value); } 
 			}
 
-			static nfloat defaultHeight;
-			static EtoCheckBoxButton()
-			{
-				var b = new EtoCheckBoxButton();
-				b.SizeToFit();
-				defaultHeight = b.Frame.Height;
-			}
-
 			public EtoCheckBoxButton()
 			{
-				Cell = new EtoCenteredButton(defaultHeight);
+				Cell = new EtoCheckCenteredButtonCell();
 				Title = string.Empty;
 				SetButtonType(NSButtonType.Switch);
 			}
 		}
 
-		protected override NSButton CreateControl()
-		{
-			return new EtoCheckBoxButton();
-		}
+		protected override bool DefaultUseAlignmentFrame => true;
+
+		protected override NSButton CreateControl() => new EtoCheckBoxButton();
 
 		protected override void Initialize()
 		{
@@ -138,6 +170,12 @@ namespace Eto.Mac.Forms.Controls
 		{
 			get { return Control.AllowsMixedState; }
 			set { Control.AllowsMixedState = value; }
+		}
+
+		protected override void SetBackgroundColor(Color? color)
+		{
+			base.SetBackgroundColor(color);
+			InvalidateMeasure();
 		}
 	}
 }

@@ -365,11 +365,20 @@ namespace Eto.Mac.Forms.Controls
 
 			public override void Layout()
 			{
+				Handler?.PerformLayout();
 				base.Layout();
-				Handler?.UpdatePosition();
 			}
 		}
 
+		private void PerformLayout()
+		{
+			if (!initialPositionSet && Widget.Loaded)
+			{
+				SetInitialSplitPosition();
+				UpdatePosition();
+				initialPositionSet = true;
+			}
+		}
 
 		protected override NSSplitView CreateControl() => new EtoSplitView(this);
 
@@ -431,8 +440,9 @@ namespace Eto.Mac.Forms.Controls
 			{
 				if (panel1 != value)
 				{
-					var view = value.GetContainerView();
-					Control.ReplaceSubviewWith(Control.Subviews[0], view ?? new NSView());
+					var view = value.GetContainerView() ?? new NSView();
+					view.AutoresizingMask = NSViewResizingMask.WidthSizable | NSViewResizingMask.HeightSizable;
+					Control.ReplaceSubviewWith(Control.Subviews[0], view);
 					panel1 = value;
 					if (Widget.Loaded)
 						UpdatePosition();
@@ -447,8 +457,9 @@ namespace Eto.Mac.Forms.Controls
 			{
 				if (panel2 != value)
 				{
-					var view = value.GetContainerView();
-					Control.ReplaceSubviewWith(Control.Subviews[1], view ?? new NSView());
+					var view = value.GetContainerView() ?? new NSView();
+					view.AutoresizingMask = NSViewResizingMask.WidthSizable | NSViewResizingMask.HeightSizable;
+					Control.ReplaceSubviewWith(Control.Subviews[1], view);
 					panel2 = value;
 					if (Widget.Loaded)
 						UpdatePosition();
@@ -500,9 +511,12 @@ namespace Eto.Mac.Forms.Controls
 						break;
 				}
 			}
-			else if (PreferredSize != null)
+			else
 			{
-				var preferredSize = Orientation == Orientation.Horizontal ? PreferredSize.Value.Width : PreferredSize.Value.Height;
+				var preferredSize = Orientation == Orientation.Horizontal ? UserPreferredSize.Width : UserPreferredSize.Height;
+				if (preferredSize == -1)
+					return;
+
 				var size = Orientation == Orientation.Horizontal ? Size.Width : Size.Height;
 				switch (fixedPanel)
 				{
@@ -521,9 +535,6 @@ namespace Eto.Mac.Forms.Controls
 		{
 			base.OnLoadComplete(e);
 			WasLoaded = false;
-			SetInitialSplitPosition();
-			UpdatePosition();
-			initialPositionSet = true;
 		}
 
 		public override void OnUnLoad(EventArgs e)

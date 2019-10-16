@@ -26,24 +26,31 @@ namespace Eto.Test.Sections.Behaviors
 
 			var htmlTextArea = new TextArea();
 			var selectFilesButton = new Button { Text = "Select Files" };
-			Uri[] uris = null;
+			Uri[] fileUris = null;
 			selectFilesButton.Click += (sender, e) =>
 			{
 				var ofd = new OpenFileDialog();
 				ofd.MultiSelect = true;
 				ofd.ShowDialog(this);
-				uris = ofd.Filenames.Select(r => new Uri(r)).ToArray();
-				if (uris.Length == 0)
-					uris = null;
+				fileUris = ofd.Filenames.Select(r => new Uri(r)).ToArray();
+				if (fileUris.Length == 0)
+					fileUris = null;
 			};
+
+			var urlTextBox = new TextBox();
 
 			Func<DataObject> createDataObject = () =>
 			{
 				var data = new DataObject();
 				if (!string.IsNullOrEmpty(textBox.Text))
 					data.Text = textBox.Text;
-				if (uris != null)
-					data.Uris = uris;
+				var uris = new List<Uri>();
+				if (fileUris != null)
+					uris.AddRange(fileUris);
+				if (Uri.TryCreate(urlTextBox.Text, UriKind.Absolute, out var uri))
+					uris.Add(uri);
+				if (uris.Count > 0)
+					data.Uris = uris.ToArray();
 				if (!string.IsNullOrEmpty(htmlTextArea.Text))
 					data.Html = htmlTextArea.Text;
 				if (includeImageCheck.Checked == true)
@@ -68,6 +75,7 @@ namespace Eto.Test.Sections.Behaviors
 			};
 
 			var treeSource = new TreeGridView { Size = new Size(200, 200) };
+			treeSource.SelectedItemsChanged += (sender, e) => Log.Write(treeSource, $"TreeGridView.SelectedItemsChanged (source) Rows: {string.Join(", ", treeSource.SelectedRows.Select(r => r.ToString()))}");
 			treeSource.DataStore = CreateTreeData();
 			SetupTreeColumns(treeSource);
 			treeSource.MouseMove += (sender, e) =>
@@ -87,6 +95,7 @@ namespace Eto.Test.Sections.Behaviors
 			};
 
 			var gridSource = new GridView {  };
+			gridSource.SelectedRowsChanged += (sender, e) => Log.Write(gridSource, $"GridView.SelectedItemsChanged (source): {string.Join(", ", gridSource.SelectedRows.Select(r => r.ToString()))}");
 			SetupGridColumns(gridSource);
 			gridSource.DataStore = CreateGridData();
 			gridSource.MouseMove += (sender, e) =>
@@ -215,6 +224,7 @@ namespace Eto.Test.Sections.Behaviors
 			layout.BeginGroup("DataObject", 10);
 			layout.AddRow("Text", textBox);
 			layout.AddRow("Html", htmlTextArea);
+			layout.AddRow("Url", urlTextBox);
 			layout.BeginHorizontal();
 			layout.AddSpace();
 			layout.BeginVertical();

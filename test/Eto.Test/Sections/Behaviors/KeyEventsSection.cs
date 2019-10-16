@@ -46,12 +46,16 @@ namespace Eto.Test.Sections.Behaviors
 
 		void control_KeyUp(object sender, KeyEventArgs e)
 		{
-			LogKeyEvent(sender, "KeyUp", e);
+			if (e.KeyEventType != KeyEventType.KeyUp)
+				Log.Write(sender, "INCORRECT: KeyUp event should always have a KeyEventType = KeyUp");
+			LogKeyEvent(sender, e.KeyEventType.ToString(), e);
 		}
 
 		void control_KeyDown(object sender, KeyEventArgs e)
 		{
-			LogKeyEvent(sender, "KeyDown", e);
+			if (e.KeyEventType != KeyEventType.KeyDown)
+				Log.Write(sender, "INCORRECT: KeyDown event should always have a KeyEventType = KeyDown");
+			LogKeyEvent(sender, e.KeyEventType.ToString(), e);
 		}
 
 		Control ShowParentEvents()

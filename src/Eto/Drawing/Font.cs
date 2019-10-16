@@ -1,6 +1,6 @@
 using System;
 using System.Globalization;
-using System.ComponentModel;
+using sc = System.ComponentModel;
 
 namespace Eto.Drawing
 {
@@ -53,7 +53,14 @@ namespace Eto.Drawing
 		/// <summary>
 		/// Default font for status bars
 		/// </summary>
-		StatusBar
+		StatusBar,
+		/// <summary>
+		/// Default font for text that a user can typically change
+		/// </summary>
+		/// <remarks>
+		/// On macOS, the system font isn't normally a font that the user would select or use, other than for user interface elements.
+		/// </remarks>
+		User
 	}
 
 	/// <summary>
@@ -115,7 +122,7 @@ namespace Eto.Drawing
 	/// </remarks>
 	/// <copyright>(c) 2014 by Curtis Wensley</copyright>
 	/// <license type="BSD-3">See LICENSE for full terms</license>
-	[TypeConverter(typeof(FontConverter))]
+	[sc.TypeConverter(typeof(FontConverter))]
 	[Handler(typeof(Font.IHandler))]
 	public class Font : Widget
 	{
